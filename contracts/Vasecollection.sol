@@ -1,80 +1,98 @@
-//SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.4;
 
-import "@openzeppelin/contracts/utils/Counters.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+    import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+    import "@openzeppelin/contracts/access/Ownable.sol";
+    import "@openzeppelin/contracts/utils/Strings.sol";
 
-contract Vasecollection is ERC721Enumerable, Ownable {
-    using SafeMath for uint256;
-    using Counters for Counters.Counter;
-    
-    Counters.Counter private _tokenIds;
-    
-    uint public constant MAX_SUPPLY = 4;
-    uint public constant PRICE = 0.001 ether;
-    uint public constant MAX_PER_MINT = 1;
-    
-    string public baseTokenURI;
-    
-    constructor(string memory baseURI) ERC721("vasecollection", "VSC") {
-        setBaseURI(baseURI);
-    }
-    
-    function reserveNFTs() public onlyOwner {
-        uint totalMinted = _tokenIds.current();
+    contract VaseCollection is ERC721Enumerable, Ownable {
+        using Strings for uint256;
+        /**
+         * @dev _baseTokenURI for computing {tokenURI}. If set, the resulting URI for each
+         * token will be the concatenation of the `baseURI` and the `tokenId`.
+         */
+        string _baseTokenURI;
 
-        require(totalMinted.add(1) < MAX_SUPPLY, "Not enough NFTs left to reserve");
+        //  _price is the price of one LW3Punks NFT
+        uint256 public _price = 0.01 ether;
 
-        for (uint i = 0; i < 1; i++) {
-            _mintSingleNFT();
+        // _paused is used to pause the contract in case of an emergency
+        bool public _paused;
+
+        // max number of LW3Punks
+        uint256 public maxTokenIds = 10;
+
+        // total number of tokenIds minted
+        uint256 public tokenIds;
+
+        modifier onlyWhenNotPaused {
+            require(!_paused, "Contract currently paused");
+            _;
         }
-    }
-    
-    function _baseURI() internal view virtual override returns (string memory) {
-        return baseTokenURI;
-    }
-    
-    function setBaseURI(string memory _baseTokenURI) public onlyOwner {
-        baseTokenURI = _baseTokenURI;
-    }
-    
-    function mintNFTs(uint _count) public payable {
-        uint totalMinted = _tokenIds.current();
 
-        require(totalMinted.add(_count) <= MAX_SUPPLY, "Not enough NFTs left!");
-        require(_count >0 && _count <= MAX_PER_MINT, "Cannot mint specified number of NFTs.");
-        require(msg.value >= PRICE.mul(_count), "Not enough ether to purchase NFTs.");
-
-        for (uint i = 0; i < _count; i++) {
-            _mintSingleNFT();
+        /**
+         * @dev ERC721 constructor takes in a `name` and a `symbol` to the token collection.
+         * name in our case is `LW3Punks` and symbol is `LW3P`.
+         * Constructor for LW3P takes in the baseURI to set _baseTokenURI for the collection.
+         */
+        constructor (string memory baseURI) ERC721("VaseCollection", "VCL") {
+            _baseTokenURI = baseURI;
         }
-    }
-    
-    function _mintSingleNFT() private {
-        uint newTokenID = _tokenIds.current();
-        _safeMint(msg.sender, newTokenID);
-        _tokenIds.increment();
-    }
-    
-    function tokensOfOwner(address _owner) external view returns (uint[] memory) {
 
-        uint tokenCount = balanceOf(_owner);
-        uint[] memory tokensId = new uint256[](tokenCount);
-
-        for (uint i = 0; i < tokenCount; i++) {
-            tokensId[i] = tokenOfOwnerByIndex(_owner, i);
+        /**
+        * @dev mint allows an user to mint 1 NFT per transaction.
+        */
+        function mint() public payable onlyWhenNotPaused {
+            require(tokenIds < maxTokenIds, "Exceed maximum VaseCollection supply");
+            require(msg.value >= _price, "Ether sent is not correct");
+            tokenIds += 1;
+            _safeMint(msg.sender, tokenIds);
         }
-        return tokensId;
-    }
-    
-    function withdraw() public payable onlyOwner {
-        uint balance = address(this).balance;
-        require(balance > 0, "No ether left to withdraw");
 
-        (bool success, ) = (msg.sender).call{value: balance}("");
-        require(success, "Transfer failed.");
+        /**
+        * @dev _baseURI overides the Openzeppelin's ERC721 implementation which by default
+        * returned an empty string for the baseURI
+        */
+        function _baseURI() internal view virtual override returns (string memory) {
+            return _baseTokenURI;
+        }
+
+        /**
+        * @dev tokenURI overides the Openzeppelin's ERC721 implementation for tokenURI function
+        * This function returns the URI from where we can extract the metadata for a given tokenId
+        */
+        function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
+            require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
+
+            string memory baseURI = _baseURI();
+            // Here it checks if the length of the baseURI is greater than 0, if it is return the baseURI and attach
+            // the tokenId and `.json` to it so that it knows the location of the metadata json file for a given 
+            // tokenId stored on IPFS
+            // If baseURI is empty return an empty string
+            return bytes(baseURI).length > 0 ? string(abi.encodePacked(baseURI, tokenId.toString(), ".json")) : "";
+        }
+
+        /**
+        * @dev setPaused makes the contract paused or unpaused
+         */
+        function setPaused(bool val) public onlyOwner {
+            _paused = val;
+        }
+
+        /**
+        * @dev withdraw sends all the ether in the contract 
+        * to the owner of the contract
+         */
+        function withdraw() public onlyOwner  {
+            address _owner = owner();
+            uint256 amount = address(this).balance;
+            (bool sent, ) =  _owner.call{value: amount}("");
+            require(sent, "Failed to send Ether");
+        }
+
+         // Function to receive Ether. msg.data must be empty
+        receive() external payable {}
+
+        // Fallback function is called when msg.data is not empty
+        fallback() external payable {}
     }
-    
-}
